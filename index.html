@@ -322,6 +322,12 @@
   .toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:11px 18px;border-radius:12px;font-weight:800;font-size:13px;z-index:200;box-shadow:var(--shadow-lg)}
   @media(min-width:840px){.toast{bottom:28px}}
 
+  /* indicador en vivo / ejemplo */
+  #liveDot{width:8px;height:8px;border-radius:50%;display:inline-block;flex:none}
+  #liveDot.live{background:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 22%,transparent)}
+  #liveDot.ex{background:var(--amber);box-shadow:0 0 0 3px color-mix(in srgb,var(--amber) 22%,transparent)}
+  #liveBtn.on{border-color:color-mix(in srgb,var(--accent) 50%,var(--line))}
+
   /* predicción de marcador + por qué (fútbol) */
   .predict{padding:0 15px 12px}
   .pred-lbl{font-size:9.5px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:800;margin-bottom:6px}
@@ -358,6 +364,7 @@
       <select id="curSel"><option value="L">L</option><option value="$">$</option><option value="€">€</option></select>
       <input id="stake" type="number" value="100" min="1" step="10" inputmode="decimal">
     </div>
+    <button class="ib" id="liveBtn" title="Actualizar datos"><span id="liveDot" class="ex"></span><span id="liveTxt" class="t">Ejemplo</span></button>
     <button class="ib" id="apiBtn" title="Conectar API"><svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 0 1 0 20M12 2a10 10 0 0 0 0 20M2 12h20M4 6h16M4 18h16"/></svg><span class="t">API</span></button>
     <button class="ib" id="themeBtn" title="Cambiar tema" aria-label="Cambiar tema"><svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>
   </div>
@@ -427,8 +434,10 @@ const fmt=(n,d=2)=>Number(n).toLocaleString('es-HN',{minimumFractionDigits:d,max
 const money=n=>fmt(n,2);
 
 let stake=100, CUR='L', dreamSeed=1, filterSport='all', apiBase='', view='resumen';
-let bets=[], histScope='week', boletoSport='all';
+let bets=[], histScope='week', boletoSport='all', liveData=false;
 const openPanels=new Set();
+// URL de tu worker: viene escrita para que cualquiera que abra la app cargue datos reales.
+const DEFAULT_API='https://cuotadivore.josericardoah123.workers.dev/';
 
 const CLIMAS={despejado:{lbl:'Despejado ☀️',g:1},nublado:{lbl:'Nublado ⛅',g:.98},lluvia:{lbl:'Lluvia 🌧️',g:.85},viento:{lbl:'Viento fuerte 💨',g:.9},calor:{lbl:'Calor extremo 🔥',g:.93}};
 
@@ -698,6 +707,7 @@ document.addEventListener('click',e=>{
   const nav=e.target.closest('[data-view]');if(nav){setView(nav.dataset.view);return}
   const goto=e.target.closest('[data-goto]');if(goto){setView(goto.dataset.goto);return}
   const del=e.target.closest('[data-del]');if(del){matches=matches.filter(m=>m.id!=del.dataset.del);openPanels.delete(+del.dataset.del);recalc();return}
+  if(e.target.closest('#liveBtn')){refreshData();return}
   if(e.target.closest('#reroll')){dreamSeed++;renderRail();renderResumen();return}
   const reg=e.target.closest('[data-reg]');if(reg){const t=buildTickets();const tipo=reg.dataset.reg;
     if(tipo==='directa'){const s=t.direct[+reg.dataset.idx];if(s)addBet('directa',[s])}
@@ -792,8 +802,11 @@ function renderHistorial(){
 
 /* ---------- init ---------- */
 async function fetchProxy(base){const res=await fetch(base+(base.includes('?')?'&':'?')+'ts='+Date.now(),{headers:{'Accept':'application/json'}});if(!res.ok)throw new Error('HTTP '+res.status);const data=await res.json();return Array.isArray(data)?data:(data.matches||[])}
+function setLive(on){liveData=on;const d=$('#liveDot'),t=$('#liveTxt'),b=$('#liveBtn');if(d)d.className=on?'live':'ex';if(t)t.textContent=on?'En vivo':'Ejemplo';if(b)b.classList.toggle('on',on)}
+function refreshData(){if(!apiBase)return;toast('Actualizando…');fetchProxy(apiBase).then(a=>{if(a&&a.length){importMatches(a);setLive(true);toast('Datos en vivo ✓')}else{setLive(false);toast('El proxy no devolvió partidos')}}).catch(()=>{setLive(false);toast('No se pudo conectar al proxy')})}
 if(!load())matches=seedMatches();
+if(!apiBase)apiBase=DEFAULT_API;
 $('#stake').value=stake;$('#curSel').value=CUR;
-recalc();setView('resumen');
-if(apiBase){fetchProxy(apiBase).then(a=>{if(a&&a.length){importMatches(a);toast('Datos actualizados ✓')}}).catch(()=>{})}
+recalc();setView('resumen');setLive(false);
+if(apiBase){fetchProxy(apiBase).then(a=>{if(a&&a.length){importMatches(a);setLive(true)}}).catch(()=>{setLive(false)})}
 </script>
