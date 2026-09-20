@@ -321,6 +321,21 @@
   .bet .status.win{background:var(--accent-soft);color:var(--accent-ink)} .bet .status.lose{background:var(--red-soft);color:var(--red)}
   .toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:11px 18px;border-radius:12px;font-weight:800;font-size:13px;z-index:200;box-shadow:var(--shadow-lg)}
   @media(min-width:840px){.toast{bottom:28px}}
+
+  /* predicción de marcador + por qué (fútbol) */
+  .predict{padding:0 15px 12px}
+  .pred-lbl{font-size:9.5px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:800;margin-bottom:6px}
+  .pred-scores{display:flex;gap:7px;flex-wrap:wrap}
+  .pscore{background:var(--surface-2);border:1px solid var(--line);border-radius:9px;padding:4px 10px;font-family:var(--fd);font-size:17px;letter-spacing:.5px;display:flex;align-items:center;gap:6px}
+  .pscore b{font-family:var(--fb);font-size:10px;font-weight:800;color:var(--muted)}
+  .pscore.top{border-color:var(--accent);background:var(--accent-soft);color:var(--accent-ink)}
+  .pscore.top b{color:var(--accent-ink)}
+  details.why{margin-top:10px}
+  details.why>summary{list-style:none;cursor:pointer;font-size:11px;font-weight:800;color:var(--accent-ink);display:inline-flex;align-items:center;gap:5px;text-transform:uppercase;letter-spacing:.05em}
+  details.why>summary::-webkit-details-marker{display:none}
+  details.why>summary::before{content:"›";font-size:14px;transition:.15s;display:inline-block}
+  details.why[open]>summary::before{transform:rotate(90deg)}
+  details.why p{font-size:12px;color:var(--ink-2);line-height:1.65;margin:8px 0 0;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:11px 13px}
 </style>
 
 <header class="top">
@@ -378,6 +393,7 @@
   <!-- ============ BOLETOS ============ -->
   <section class="view" id="v-boletos" hidden>
     <div class="head"><h2>Boletos</h2><span class="meta" id="boletoMeta"></span></div>
+    <div class="sportbar" id="boletoSportbar"></div>
     <div class="rail" id="rail"></div>
     <footer class="disc">
       <b>Cómo lee el modelo.</b> En fútbol convierte forma, localía, lesiones y clima en goles esperados (xG) y con Poisson calcula 1X2, doble oportunidad, Más/Menos, ambos anotan, hándicap y córners. En los demás deportes usa margen y total esperados (aprox. normal) para ganador, hándicap/spread y total. El <b>valor (EV)</b> = probabilidad del modelo × cuota − 1.<br><br>
@@ -411,7 +427,7 @@ const fmt=(n,d=2)=>Number(n).toLocaleString('es-HN',{minimumFractionDigits:d,max
 const money=n=>fmt(n,2);
 
 let stake=100, CUR='L', dreamSeed=1, filterSport='all', apiBase='', view='resumen';
-let bets=[], histScope='week';
+let bets=[], histScope='week', boletoSport='all';
 const openPanels=new Set();
 
 const CLIMAS={despejado:{lbl:'Despejado ☀️',g:1},nublado:{lbl:'Nublado ⛅',g:.98},lluvia:{lbl:'Lluvia 🌧️',g:.85},viento:{lbl:'Viento fuerte 💨',g:.9},calor:{lbl:'Calor extremo 🔥',g:.93}};
@@ -447,7 +463,9 @@ function soccerModel(m){
     if(m.cons==='L')pL*=b;else if(m.cons==='X')pX*=b;else if(m.cons==='V')pV*=b;
     const s2=pL+pX+pV;pL/=s2;pX/=s2;pV/=s2}
   const ec=clamp(9+(xgL+xgV-2.6)*1.7,6,14);let cov=0;for(let k=10;k<=30;k++)cov+=pois(k,ec);
-  return {xgL,xgV,pL,pX,pV,o15,o25,o35,btts,hm2,cov};
+  const grid=[];for(let i=0;i<=5;i++)for(let j=0;j<=5;j++)grid.push({s:i+'–'+j,p:pl[i]*pv[j]});
+  grid.sort((a,b)=>b.p-a.p);const topScores=grid.slice(0,4);
+  return {xgL,xgV,pL,pX,pV,o15,o25,o35,btts,hm2,cov,topScores};
 }
 function genModel(m){
   const S=SPORTS[m.sport],cl=S.outdoor?(CLIMAS[m.clima]||CLIMAS.despejado).g:1;
@@ -478,6 +496,18 @@ function selections(m){
     add('total','tov','Más de '+T+' '+u,'+'+T,pOv);add('total','tun','Menos de '+T+' '+u,'−'+T,1-pOv)}
   return out;
 }
+function explain(m){
+  if(m.sport!=='futbol')return '';
+  const r=soccerModel(m),sels=selections(m).sort((a,b)=>b.ev-a.ev),best=sels.find(s=>s.ev>0.02);
+  const pct=p=>Math.round(p*100)+'%';
+  let t=`${m.local} llega con forma ${m.formaL} y ${m.visitante} con ${m.formaV}`+(m.localia>0?`, y juega en casa (ventaja de localía)`:'')+'. ';
+  if(m.lesL||m.lesV)t+=`Bajas/lesiones estimadas: ${m.local} ${m.lesL}, ${m.visitante} ${m.lesV}. `;
+  t+=`Con eso el modelo estima ${r.xgL.toFixed(2)} goles esperados para ${m.local} y ${r.xgV.toFixed(2)} para ${m.visitante}, lo que da ${pct(r.pL)} de victoria local, ${pct(r.pX)} de empate y ${pct(r.pV)} visitante. `;
+  t+=`El marcador más probable es ${r.topScores[0].s} (${pct(r.topScores[0].p)}). `;
+  if(best){t+=`La mejor apuesta de valor es «${best.lbl}»: el modelo le da ${pct(best.prob)} de acierto, pero la mejor cuota disponible (${fmt(best.cuota,2)}) implica apenas ${pct(1/best.cuota)} — una ventaja de +${(best.ev*100).toFixed(0)}% a tu favor.`;}
+  else t+=`Hoy el modelo no encuentra una ventaja clara sobre las cuotas en este partido; mejor buscar valor en otro.`;
+  return t;
+}
 function visibleMatches(){return filterSport==='all'?matches:matches.filter(m=>m.sport===filterSport)}
 function allSelections(scope){return (scope||visibleMatches()).flatMap(selections)}
 
@@ -507,8 +537,9 @@ function pickBest(pool,{minProb,minEv,perMatch=1,limit}){const s=[...pool].sort(
   for(const x of s){if(x.prob<minProb||x.ev<minEv)continue;if((mc[x.mId]||0)>=perMatch)continue;ch.push(x);mc[x.mId]=(mc[x.mId]||0)+1;if(limit&&ch.length>=limit)break}return ch}
 function combine(l){return {cuota:l.reduce((a,s)=>a*s.cuota,1),prob:l.reduce((a,s)=>a*s.prob,1),pago:stake*l.reduce((a,s)=>a*s.cuota,1)}}
 function seededShuffle(a,seed){a=[...a];let s=seed*9301+49297;for(let i=a.length-1;i>0;i--){s=(s*9301+49297)%233280;const j=Math.floor(s/233280*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a}
-function buildTickets(){
-  const pool=allSelections(matches);
+function buildTickets(sp){
+  const base=(sp&&sp!=='all')?matches.filter(m=>m.sport===sp):matches;
+  const pool=allSelections(base);
   const direct=pickBest(pool,{minProb:.55,minEv:.03,perMatch:1,limit:5}).sort((a,b)=>b.prob-a.prob).slice(0,4);
   const safe=pickBest(pool,{minProb:.55,minEv:0,perMatch:1,limit:4});
   const value=pool.filter(s=>s.prob>=.45&&s.ev>=0),longshots=pool.filter(s=>s.prob<.42&&s.cuota>=2.6);
@@ -529,7 +560,7 @@ function marketGroups(m){const S=SPORTS[m.sport];
 
 /* ================= RESUMEN ================= */
 function renderResumen(){
-  const {dream}=buildTickets(),c=combine(dream);
+  const {dream}=buildTickets('all'),c=combine(dream);
   $('#heroDream').innerHTML=dream.length?`
     <div class="k">Parlay soñador · ${dream.length} picks</div>
     <div class="pay num">${CUR}${money(c.pago)}</div>
@@ -565,6 +596,8 @@ function slider(mid,k,lbl,val,min=0,max=100){return `<div class="fld"><label>${l
 function renderCards(){
   cardsEl.innerHTML='';const list=visibleMatches();
   list.forEach(m=>{const S=SPORTS[m.sport],sels=selections(m),byk={};sels.forEach(s=>byk[s.k]=s);const bestEv=Math.max(...sels.map(s=>s.ev),-1);
+    const r0=S.engine==='soccer'?soccerModel(m):null;
+    const predHtml=r0?`<div class="predict"><div class="pred-lbl">Marcador probable</div><div class="pred-scores">${r0.topScores.map((x,i)=>`<span class="pscore ${i===0?'top':''}">${x.s}<b>${Math.round(x.p*100)}%</b></span>`).join('')}</div><details class="why"><summary>¿Por qué?</summary><p>${explain(m)}</p></details></div>`:'';
     let bar='',lbl='';
     if(S.engine==='soccer'){const pl=Math.round((byk.h?.prob||0)*100),px=Math.round((byk.d?.prob||0)*100),pv=Math.round((byk.a?.prob||0)*100);
       bar=`<i class="s0" style="width:${pl}%"></i><i class="s1" style="width:${px}%"></i><i class="s2" style="width:${pv}%"></i>`;lbl=`<span>1 · ${pl}%</span><span>X · ${px}%</span><span>${pv}% · 2</span>`;}
@@ -579,6 +612,7 @@ function renderCards(){
       <div class="teams"><span class="t" data-edit="local">${m.local}</span><span class="vs">vs</span><span class="t away" data-edit="visitante">${m.visitante}</span></div>
       <div class="probbar">${bar}</div><div class="problbl">${lbl}</div>
       <div class="sels">${primaryKeys(m).map(chip).join('')}</div>
+      ${predHtml}
       <details class="adj" ${openPanels.has(m.id)?'open':''}><summary>Factores y cuotas <span class="chev">▾</span></summary><div class="adj-body">
         <div class="fld"><label>Deporte</label><select data-mid="${m.id}" data-k="sport">${SPORT_KEYS.map(k=>`<option value="${k}" ${m.sport===k?'selected':''}>${SPORTS[k].emoji} ${SPORTS[k].name}</option>`).join('')}</select></div>
         <div class="fld"><label>Liga / Competición</label><select data-mid="${m.id}" data-k="liga">${S.ligas.map(l=>`<option ${m.liga===l?'selected':''}>${l}</option>`).join('')}${!S.ligas.includes(m.liga)?`<option selected>${m.liga}</option>`:''}</select></div>
@@ -597,15 +631,20 @@ function renderCards(){
 /* ================= BOLETOS ================= */
 const railEl=$('#rail');
 const ICON={direct:'<path d="M20 6L9 17l-5-5"/>',safe:'<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',dream:'<path d="M12 2l2.4 7.4H22l-6 4.6 2.3 7.4L12 17l-6.3 4.4L8 14 2 9.4h7.6z"/>'};
+function renderBoletoBar(){const bar=$('#boletoSportbar');if(!bar)return;const cn={all:matches.length};SPORT_KEYS.forEach(k=>cn[k]=matches.filter(m=>m.sport===k).length);
+  let h=`<button class="sp-tab ${boletoSport==='all'?'on':''}" data-bsp="all">Todos <span class="n">${cn.all}</span></button>`;
+  SPORT_KEYS.forEach(k=>{if(cn[k]===0&&boletoSport!==k)return;h+=`<button class="sp-tab ${boletoSport===k?'on':''}" data-bsp="${k}">${SPORTS[k].emoji} ${SPORTS[k].name} <span class="n">${cn[k]}</span></button>`});bar.innerHTML=h;}
 function renderRail(){
-  const {direct,safe,dream}=buildTickets();railEl.innerHTML='';
+  renderBoletoBar();
+  const {direct,safe,dream}=buildTickets(boletoSport);railEl.innerHTML='';
   const d=document.createElement('div');d.className='ticket t-direct';
   d.innerHTML=`<div class="tk-head"><span class="tag"><svg viewBox="0 0 24 24">${ICON.direct}</svg></span><div><h3>Apuestas directas</h3><div class="desc">Sencillas, alta probabilidad, buena paga</div></div></div>
     <div class="legs">${direct.length?direct.map((s,i)=>`<div class="leg single"><div class="s-top"><div class="l-main"><div class="l-match">${s.emoji} ${s.match} · ${grpName(s.g)}</div><div class="l-pick">${s.lbl}</div></div><div class="l-right"><div class="l-odd num">${fmt(s.cuota,2)}</div>${pill(s.prob)}</div></div><div class="single-pay"><span>Ganancia con ${CUR}${money(stake)}</span><b class="num">${CUR}${money(stake*s.cuota)}</b></div><button class="reg" data-reg="directa" data-idx="${i}">＋ Registrar</button></div>`).join(''):'<div class="empty">No hay picks con valor claro. Ajusta cuotas o factores.</div>'}</div>`;
   railEl.appendChild(d);
   railEl.appendChild(parlayCard('safe','Combinada segura',`Las ${safe.length} más probables`,safe,false));
   railEl.appendChild(parlayCard('dream','Parlay soñador',`${dream.length} picks para soñar`,dream,true));
-  $('#boletoMeta').textContent=matches.length+' partidos · '+CUR+money(stake)+' de apuesta';
+  const nb=(boletoSport==='all'?matches.length:matches.filter(m=>m.sport===boletoSport).length);
+  $('#boletoMeta').textContent=nb+' partidos'+(boletoSport!=='all'?' · '+SPORTS[boletoSport].name:'')+' · '+CUR+money(stake);
 }
 function parlayCard(kind,title,desc,legs,dream){const c=combine(legs);const el=document.createElement('div');el.className='ticket t-'+kind+(dream?' dream feature':'');
   el.innerHTML=`<div class="tk-head"><span class="tag"><svg viewBox="0 0 24 24">${ICON[kind]}</svg></span><div><h3>${title}</h3><div class="desc">${desc}</div></div>${dream?`<button class="refresh" id="reroll" title="Generar otro parlay"><svg viewBox="0 0 24 24"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.5 9a9 9 0 0 1 14.9-3.4L23 10M1 14l4.6 4.4A9 9 0 0 0 20.5 15"/></svg></button>`:''}</div>
@@ -669,6 +708,7 @@ document.addEventListener('click',e=>{
     save();renderHistorial();renderResumen();return}
   const hs=e.target.closest('[data-hscope]');if(hs){histScope=hs.dataset.hscope;document.querySelectorAll('#histScope button').forEach(x=>x.classList.toggle('on',x.dataset.hscope===histScope));renderHistorial();return}
   const sp=e.target.closest('[data-sp]');if(sp){filterSport=sp.dataset.sp;renderStructural();return}
+  const bsp=e.target.closest('[data-bsp]');if(bsp){boletoSport=bsp.dataset.bsp;renderRail();return}
   const ed=e.target.closest('[data-edit]');if(ed){const card=ed.closest('.match'),m=matches.find(x=>x.id==card.dataset.mid);if(!m)return;const f=ed.dataset.edit,v=prompt('Editar '+f+':',m[f]);if(v!=null){m[f]=v.trim()||m[f];recalc()}return}
 });
 cardsEl.addEventListener('toggle',e=>{const d=e.target;if(d.tagName!=='DETAILS')return;const card=d.closest('.match');if(!card)return;const id=+card.dataset.mid;if(d.open)openPanels.add(id);else openPanels.delete(id)},true);
