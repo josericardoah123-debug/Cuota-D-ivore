@@ -328,6 +328,15 @@
   #liveDot.ex{background:var(--amber);box-shadow:0 0 0 3px color-mix(in srgb,var(--amber) 22%,transparent)}
   #liveBtn.on{border-color:color-mix(in srgb,var(--accent) 50%,var(--line))}
 
+  /* análisis del día */
+  .an-row{display:flex;align-items:center;gap:10px;background:var(--surface);border:1px solid var(--line);border-radius:11px;padding:9px 12px;margin-bottom:8px;box-shadow:var(--shadow-sm)}
+  .an-time{font-size:11px;font-weight:800;color:var(--muted);font-variant-numeric:tabular-nums;flex:none;width:44px}
+  .an-main{flex:1;min-width:0}
+  .an-match{font-size:10.5px;color:var(--muted);font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .an-pick{font-size:13px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .an-right{display:flex;align-items:center;gap:8px;flex:none}
+  .an-odd{font-family:var(--fm);font-weight:700;font-size:15px}
+
   /* predicción de marcador + por qué (fútbol) */
   .predict{padding:0 15px 12px}
   .pred-lbl{font-size:9.5px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted);font-weight:800;margin-bottom:6px}
@@ -415,6 +424,8 @@
     </div>
     <div id="histDream"></div>
     <div class="histgrid" id="histSummary"></div>
+    <div class="head" style="margin-top:24px"><h2 style="font-size:16px">Análisis de hoy</h2><span class="meta" id="anMeta">se limpia a medianoche</span></div>
+    <div id="analisisList"></div>
     <div class="head" style="margin-top:24px"><h2 style="font-size:16px">Apuestas registradas</h2></div>
     <div id="histList"></div>
   </section>
@@ -435,6 +446,7 @@ const money=n=>fmt(n,2);
 
 let stake=100, CUR='L', dreamSeed=1, filterSport='all', apiBase='', view='resumen';
 let bets=[], histScope='week', boletoSport='all', liveData=false;
+let analisis={date:'',items:[]};
 const openPanels=new Set();
 // URL de tu worker: viene escrita para que cualquiera que abra la app cargue datos reales.
 const DEFAULT_API='https://cuotadivore.josericardoah123.workers.dev/';
@@ -458,22 +470,26 @@ function pois(k,l){return Math.exp(-l+k*Math.log(l)-factl(k))}
 function erf(x){const t=1/(1+.3275911*Math.abs(x));const y=1-(((((1.061405429*t-1.453152027)*t)+1.421413741)*t-.284496736)*t+.254829592)*t*Math.exp(-x*x);return x>=0?y:-y}
 function Phi(z){return .5*(1+erf(z/Math.SQRT2))}
 
+function dc(i,j,l,mu,rho){ // corrección Dixon-Coles para marcadores bajos
+  if(i===0&&j===0)return 1-l*mu*rho;if(i===0&&j===1)return 1+l*rho;
+  if(i===1&&j===0)return 1+mu*rho;if(i===1&&j===1)return 1-rho;return 1;}
 function soccerModel(m){
-  const clg=(CLIMAS[m.clima]||CLIMAS.despejado).g;
-  const sL=m.formaL+m.localia-m.lesL*.18,sV=m.formaV-m.lesV*.18,diff=(sL-sV)/26;
-  const xgL=clamp((1.05+diff*.55+m.localia/90)*clg,.2,4.2),xgV=clamp((1-diff*.55)*clg,.2,4);
-  const MAX=8,pl=[],pv=[];for(let i=0;i<=MAX;i++){pl[i]=pois(i,xgL);pv[i]=pois(i,xgV)}
-  let pL=0,pX=0,pV=0,o15=0,o25=0,o35=0,btts=0,hm2=0;
-  for(let i=0;i<=MAX;i++)for(let j=0;j<=MAX;j++){const p=pl[i]*pv[j],t=i+j;
+  let xgL,xgV;
+  if(m.xgL&&m.xgV){xgL=clamp(m.xgL,.2,4.5);xgV=clamp(m.xgV,.2,4.5);}
+  else{const clg=(CLIMAS[m.clima]||CLIMAS.despejado).g,sL=m.formaL+m.localia-m.lesL*.18,sV=m.formaV-m.lesV*.18,diff=(sL-sV)/26;
+    xgL=clamp((1.05+diff*.55+m.localia/90)*clg,.2,4.2);xgV=clamp((1-diff*.55)*clg,.2,4);}
+  const RHO=-0.12,MAX=8,pl=[],pv=[];for(let i=0;i<=MAX;i++){pl[i]=pois(i,xgL);pv[i]=pois(i,xgV)}
+  let pL=0,pX=0,pV=0,o15=0,o25=0,o35=0,btts=0,hm2=0,tot=0;const grid=[];
+  for(let i=0;i<=MAX;i++)for(let j=0;j<=MAX;j++){const p=pl[i]*pv[j]*dc(i,j,xgL,xgV,RHO),t=i+j;tot+=p;
     if(i>j)pL+=p;else if(i===j)pX+=p;else pV+=p;
-    if(t>=2)o15+=p;if(t>=3)o25+=p;if(t>=4)o35+=p;if(i>=1&&j>=1)btts+=p;if(i-j>=2)hm2+=p}
-  const s=pL+pX+pV;pL/=s;pX/=s;pV/=s;
+    if(t>=2)o15+=p;if(t>=3)o25+=p;if(t>=4)o35+=p;if(i>=1&&j>=1)btts+=p;if(i-j>=2)hm2+=p;
+    if(i<=5&&j<=5)grid.push({s:i+'–'+j,p})}
+  pL/=tot;pX/=tot;pV/=tot;o15/=tot;o25/=tot;o35/=tot;btts/=tot;hm2/=tot;
   if(m.cons&&m.cons!=='none'&&m.consF>0){const b=1+(m.consF/100)*.3;
     if(m.cons==='L')pL*=b;else if(m.cons==='X')pX*=b;else if(m.cons==='V')pV*=b;
     const s2=pL+pX+pV;pL/=s2;pX/=s2;pV/=s2}
   const ec=clamp(9+(xgL+xgV-2.6)*1.7,6,14);let cov=0;for(let k=10;k<=30;k++)cov+=pois(k,ec);
-  const grid=[];for(let i=0;i<=5;i++)for(let j=0;j<=5;j++)grid.push({s:i+'–'+j,p:pl[i]*pv[j]});
-  grid.sort((a,b)=>b.p-a.p);const topScores=grid.slice(0,4);
+  grid.sort((a,b)=>b.p-a.p);const topScores=grid.slice(0,4).map(x=>({s:x.s,p:x.p/tot}));
   return {xgL,xgV,pL,pX,pV,o15,o25,o35,btts,hm2,cov,topScores};
 }
 function genModel(m){
@@ -538,8 +554,8 @@ function seedMatches(){const L=[];const p=(m,f,o)=>{Object.assign(m,f);m.odds=o;
 let matches=[];
 
 const LS='cuotadivore.v2';
-function save(){try{localStorage.setItem(LS,JSON.stringify({matches,stake,idc,CUR,apiBase,bets}))}catch(e){}}
-function load(){try{const r=localStorage.getItem(LS);if(r){const d=JSON.parse(r);bets=d.bets||[];if(d.matches&&d.matches.length){matches=d.matches;stake=d.stake||100;idc=d.idc||100;CUR=d.CUR||'L';apiBase=d.apiBase||'';return true}}}catch(e){}return false}
+function save(){try{localStorage.setItem(LS,JSON.stringify({matches,stake,idc,CUR,apiBase,bets,analisis}))}catch(e){}}
+function load(){try{const r=localStorage.getItem(LS);if(r){const d=JSON.parse(r);bets=d.bets||[];analisis=d.analisis||{date:'',items:[]};if(d.matches&&d.matches.length){matches=d.matches;stake=d.stake||100;idc=d.idc||100;CUR=d.CUR||'L';apiBase=d.apiBase||'';return true}}}catch(e){}return false}
 
 /* ---------- generador ---------- */
 function pickBest(pool,{minProb,minEv,perMatch=1,limit}){const s=[...pool].sort((a,b)=>b.ev-a.ev),ch=[],mc={};
@@ -756,7 +772,7 @@ function openApiModal(){const bg=document.createElement('div');bg.className='mod
       if(!arr.length)throw new Error('El proxy no devolvió partidos');importMatches(arr);st.className='api-status ok';st.textContent='✓ '+arr.length+' partidos cargados';setTimeout(close,900)}
     catch(err){st.className='api-status err';st.textContent='No se pudo conectar: '+err.message+' — aloja la página en tu dominio y habilita CORS.'}}}
 function importMatches(arr){matches=arr.map(x=>{const sport=SPORTS[x.sport]?x.sport:'futbol',S=SPORTS[sport];
-  return {id:idc++,sport,liga:x.liga||S.ligas[0],local:x.local||'Local',visitante:x.visitante||'Visitante',fecha:x.fecha||'',formaL:+x.formaL||60,formaV:+x.formaV||60,localia:x.localia??(sport==='mma'?0:9),lesL:+x.lesL||10,lesV:+x.lesV||10,clima:x.clima||'despejado',cons:x.cons||'none',consF:+x.consF||0,line:x.line??S.defLine,totalLine:x.totalLine??S.defTotal,odds:x.odds||{}}});recalc()}
+  return {id:idc++,sport,liga:x.liga||S.ligas[0],local:x.local||'Local',visitante:x.visitante||'Visitante',fecha:x.fecha||'',formaL:+x.formaL||60,formaV:+x.formaV||60,localia:x.localia??(sport==='mma'?0:9),lesL:+x.lesL||10,lesV:+x.lesV||10,clima:x.clima||'despejado',cons:x.cons||'none',consF:+x.consF||0,xgL:x.xgL,xgV:x.xgV,line:x.line??S.defLine,totalLine:x.totalLine??S.defTotal,odds:x.odds||{}}});recalc();recordAnalysis()}
 $('#apiBtn').addEventListener('click',openApiModal);
 
 /* ---------- historial ---------- */
@@ -798,6 +814,28 @@ function renderHistorial(){
       <div class="btitle">${b.titulo}</div><div class="bpicks">${picks}</div>
       <div class="bbtm"><span class="binfo num">Cuota ${fmt(b.cuota,2)} · ${CUR}${money(b.stake)} → ${CUR}${money(b.pago)}</span><span class="bacts">${acts}<button class="ba" data-bet="${b.id}" data-set="del">🗑</button></span></div></div>`}).join('')
     :`<div class="empty" style="border:1.5px dashed var(--line-strong);border-radius:16px">Aún no registras apuestas. Ve a Boletos y pulsa “Registrar en mi historial”.</div>`;
+  renderAnalisis();
+}
+
+/* ---------- análisis del día (se limpia a medianoche) ---------- */
+function todayStr(){return new Date().toLocaleDateString('en-CA',{timeZone:'America/Tegucigalpa'})}
+function ensureDay(){const t=todayStr();if(analisis.date!==t){analisis={date:t,items:[]};save()}}
+function recordAnalysis(){ensureDay();
+  const picks=allSelections(matches).filter(s=>s.ev>.02&&s.prob>=.5).sort((a,b)=>b.ev-a.ev);
+  const now=new Date().toLocaleTimeString('es-HN',{timeZone:'America/Tegucigalpa',hour:'2-digit',minute:'2-digit'});
+  let added=0;
+  for(const s of picks){const key=s.mId+'|'+s.k;if(analisis.items.some(x=>x.key===key))continue;
+    analisis.items.push({key,time:now,emoji:s.emoji,match:s.match,pick:s.lbl,grp:grpName(s.g),cuota:s.cuota,prob:s.prob,ev:s.ev});
+    if(++added,analisis.items.length>=150)break;}
+  if(added){save();renderAnalisis()}
+}
+function renderAnalisis(){const el=$('#analisisList');if(!el)return;ensureDay();
+  const m=$('#anMeta');if(m)m.textContent=analisis.items.length+' análisis · se limpia a medianoche';
+  const items=[...analisis.items].reverse();
+  el.innerHTML=items.length?items.map(a=>`<div class="an-row"><span class="an-time num">${a.time}</span>
+    <div class="an-main"><div class="an-match">${a.emoji||''} ${a.match} · ${a.grp}</div><div class="an-pick">${a.pick}</div></div>
+    <div class="an-right"><span class="an-odd num">${fmt(a.cuota,2)}</span><span class="pill ${a.prob>=.5?'hi':a.prob>=.2?'md':'lo'} num">${Math.round(a.prob*100)}%</span><span class="ev pos">+${(a.ev*100).toFixed(0)}%</span></div></div>`).join('')
+    :`<div class="empty" style="border:1.5px dashed var(--line-strong);border-radius:16px">Sin análisis hoy todavía. Se registran solos cada vez que la app carga datos en vivo.</div>`;
 }
 
 /* ---------- init ---------- */
@@ -807,6 +845,7 @@ function refreshData(){if(!apiBase)return;toast('Actualizando…');fetchProxy(ap
 if(!load())matches=seedMatches();
 if(!apiBase)apiBase=DEFAULT_API;
 $('#stake').value=stake;$('#curSel').value=CUR;
-recalc();setView('resumen');setLive(false);
+recalc();setView('resumen');setLive(false);ensureDay();renderAnalisis();
 if(apiBase){fetchProxy(apiBase).then(a=>{if(a&&a.length){importMatches(a);setLive(true)}}).catch(()=>{setLive(false)})}
+setInterval(()=>{const d=analisis.date;ensureDay();if(analisis.date!==d)renderAnalisis();},300000);
 </script>
