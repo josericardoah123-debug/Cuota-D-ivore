@@ -502,8 +502,8 @@ function genModel(m){
   return {expMargin:em,expTotal:et,sigM:S.sigMargin,sigT:S.sigTotal,pHome,pAway:1-pHome};
 }
 function selections(m){
-  const o=m.odds,out=[],S=SPORTS[m.sport];
-  const add=(g,k,lbl,short,prob)=>{const c=Number(o[k])||0;if(c>1&&isFinite(prob)&&prob>0){const p=clamp(prob,.001,.999);out.push({mId:m.id,match:m.local+' vs '+m.visitante,sport:m.sport,emoji:S.emoji,g,k,lbl,short,prob:p,cuota:c,ev:p*c-1})}};
+  const o=m.odds,out=[],S=SPORTS[m.sport],PF=m.pfair||{};
+  const add=(g,k,lbl,short,prob)=>{const c=Number(o[k])||0;const raw=(PF[k]!=null?PF[k]:prob);if(c>1&&isFinite(raw)&&raw>0){const p=clamp(raw,.001,.999);out.push({mId:m.id,match:m.local+' vs '+m.visitante,sport:m.sport,emoji:S.emoji,g,k,lbl,short,prob:p,cuota:c,ev:p*c-1})}};
   if(S.engine==='soccer'){const r=soccerModel(m);
     add('1x2','h','Gana '+m.local,'1',r.pL);add('1x2','d','Empate','X',r.pX);add('1x2','a','Gana '+m.visitante,'2',r.pV);
     add('1x2','dc1x','Local o empate','1X',r.pL+r.pX);add('1x2','dc12','Local o visitante','12',r.pL+r.pV);add('1x2','dcx2','Empate o visitante','X2',r.pX+r.pV);
@@ -529,8 +529,8 @@ function explain(m){
   if(m.lesL||m.lesV)t+=`Bajas/lesiones estimadas: ${m.local} ${m.lesL}, ${m.visitante} ${m.lesV}. `;
   t+=`Con eso el modelo estima ${r.xgL.toFixed(2)} goles esperados para ${m.local} y ${r.xgV.toFixed(2)} para ${m.visitante}, lo que da ${pct(r.pL)} de victoria local, ${pct(r.pX)} de empate y ${pct(r.pV)} visitante. `;
   t+=`El marcador más probable es ${r.topScores[0].s} (${pct(r.topScores[0].p)}). `;
-  if(best){t+=`La mejor apuesta de valor es «${best.lbl}»: el modelo le da ${pct(best.prob)} de acierto, pero la mejor cuota disponible (${fmt(best.cuota,2)}) implica apenas ${pct(1/best.cuota)} — una ventaja de +${(best.ev*100).toFixed(0)}% a tu favor.`;}
-  else t+=`Hoy el modelo no encuentra una ventaja clara sobre las cuotas en este partido; mejor buscar valor en otro.`;
+  if(best){t+=`La mejor apuesta de valor es «${best.lbl}»: la probabilidad justa del mercado es ${pct(best.prob)}, pero la cuota (${fmt(best.cuota,2)}) implica apenas ${pct(1/best.cuota)} — tu casa paga de más, una ventaja de +${(best.ev*100).toFixed(0)}% a tu favor.`;}
+  else t+=`Hoy no hay una cuota que pague por encima del valor justo del mercado en este partido; mejor buscar en otro o en tu casa local.`;
   return t;
 }
 function visibleMatches(){return filterSport==='all'?matches:matches.filter(m=>m.sport===filterSport)}
@@ -772,7 +772,7 @@ function openApiModal(){const bg=document.createElement('div');bg.className='mod
       if(!arr.length)throw new Error('El proxy no devolvió partidos');importMatches(arr);st.className='api-status ok';st.textContent='✓ '+arr.length+' partidos cargados';setTimeout(close,900)}
     catch(err){st.className='api-status err';st.textContent='No se pudo conectar: '+err.message+' — aloja la página en tu dominio y habilita CORS.'}}}
 function importMatches(arr){matches=arr.map(x=>{const sport=SPORTS[x.sport]?x.sport:'futbol',S=SPORTS[sport];
-  return {id:idc++,sport,liga:x.liga||S.ligas[0],local:x.local||'Local',visitante:x.visitante||'Visitante',fecha:x.fecha||'',formaL:+x.formaL||60,formaV:+x.formaV||60,localia:x.localia??(sport==='mma'?0:9),lesL:+x.lesL||10,lesV:+x.lesV||10,clima:x.clima||'despejado',cons:x.cons||'none',consF:+x.consF||0,xgL:x.xgL,xgV:x.xgV,line:x.line??S.defLine,totalLine:x.totalLine??S.defTotal,odds:x.odds||{}}});recalc();recordAnalysis()}
+  return {id:idc++,sport,liga:x.liga||S.ligas[0],local:x.local||'Local',visitante:x.visitante||'Visitante',fecha:x.fecha||'',formaL:+x.formaL||60,formaV:+x.formaV||60,localia:x.localia??(sport==='mma'?0:9),lesL:+x.lesL||10,lesV:+x.lesV||10,clima:x.clima||'despejado',cons:x.cons||'none',consF:+x.consF||0,xgL:x.xgL,xgV:x.xgV,pfair:x.pfair||null,line:x.line??S.defLine,totalLine:x.totalLine??S.defTotal,odds:x.odds||{}}});recalc();recordAnalysis()}
 $('#apiBtn').addEventListener('click',openApiModal);
 
 /* ---------- historial ---------- */
